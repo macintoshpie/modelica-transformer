@@ -1,15 +1,21 @@
+
+from antlr4 import *
 from antlr4.xpath import XPath
+
+from modelicaTransformer.modelicaAntlr.modelicaLexer import modelicaLexer
+from modelicaTransformer.modelicaAntlr.modelicaParser import modelicaParser
 
 
 def select(root, parser, rule, child=None, child_value=None):
-  """selects the rule that has a child with child_value
-  e.g. select a component whose identifier is thermalZoneTwoElements
+  """select selects the rule in AST that has a child with child_value
+  If child is None, then it just returns the matched rule nodes
+  e.g. select a component declaration whose identifier is thermalZoneTwoElements
 
   :param root: object, tree to search
   :param parser: object, parser that generated the tree
   :param rule: string, name of node to search for
-  :param child: string, name of direct descendant to inspect text of
-  :param child_value: string, value to filter nodes
+  :param child: string, (optional) name of direct descendant used to filter nodes by inspecting it's text
+  :param child_value: (optional) string, value to match text to
   """
   matches = XPath.XPath.findAll(root, f'//{rule}', parser)
   if len(matches) == 0:
@@ -19,25 +25,31 @@ def select(root, parser, rule, child=None, child_value=None):
   if child == None:
     return matches
 
-  def nothing():
-    pass
+  def child_missing():
+    return []
 
   results = []
   for match in matches:
-    # get the child's text
-    val = getattr(match, child, nothing)().getText()
-    if val == child_value:
-      results.append(match)
+    # this works b/c nodes of AST are ParserRuleContext, and calling child node
+    # as a method returns that context
+    children = getattr(match, child, child_missing)()
+
+    # possible for match to have multiple children of the same type
+    # e.g. connect_clause has two component_reference, so treat result as a list
+    if not isinstance(children, list):
+      children = [children]
+    
+    # filter this match based on child condition
+    for _child in children:
+      val = _child.getText()
+      if val == child_value:
+        results.append(match)
   
   return results
-
-
-def parseSelectors(path):
-  raise Exception("not implemented")
   
 
 def selectPath(root, parser, path):
-  """selects nodes based on a series of node selectors
+  """selectPath selects nodes based on a series of node selectors
 
   :param root: object, tree root to search
   :param parser: object, parser that made the tree
@@ -71,8 +83,11 @@ def selectPath(root, parser, path):
 
 # Base class for Selectors
 class Selector:
+  """Selector is the base class for all selectors"""
+  _chained_selector = None
+
   def _select(self, root, parser):
-    """method for selecting nodes
+    """_select should be overridden when implementing a Selector
 
     :param root: object, root of tree to search
     :param parser: object, parser that built the tree
@@ -81,35 +96,139 @@ class Selector:
     raise Exception('Unimplemented _select method')
 
   def apply(self, root, parser):
-    return self._select(root, parser)
+    """apply runs selector as well as any chained selectors
+
+    :param root: object, root of tree to search
+    :param parser: object, parser that built the tree
+    :return: list, list of nodes that were selected
+    """
+    # pylint: disable=assignment-from-no-return
+    selected_nodes = self._select(root, parser)
+    if not self._chained_selector:
+      return selected_nodes
+    
+    selected_and_chained_nodes = []
+    for node in selected_nodes:
+      selected_and_chained_nodes += self._chained_selector.apply(node, parser)
+    
+    return selected_and_chained_nodes
+  
+  def chain(self, selector):
+    """chain chains a selector after this one
+
+    :param selector: object, selector to chain after this one is applied
+    :return: object, returns self
+    """
+    if self._chained_selector == None:
+      self._chained_selector = selector
+    else:
+      self._chained_selector.chain(selector)
+
+    return self
+  
+  def debug(self, source):
+    """debug applies the selector to the source file and prints selected nodes
+    
+    :param source: string, path to file
+    """
+    fs = FileStream(source)
+    lexer = modelicaLexer(fs)
+    stream = CommonTokenStream(lexer)
+    parser = modelicaParser(stream)
+    tree = parser.stored_definition()
+
+    # pylint: disable=assignment-from-no-return
+    matched = self._select(tree, parser)
+    self._printDebug(matched)
+  
+  def _printDebug(self, nodes):
+    """_printDebug prints nodes and their children to help debug the selector
+
+    :param nodes: list, nodes to print out (should be the nodes selected)
+    """
+    def format_node_name(name):
+      name = name.lower()
+      return name[:-7] if name.endswith("context") else name
+    
+    # print the selector name
+    print(self.__class__.__name__)
+    for node in nodes:      
+      print(f'  {format_node_name(node.__class__.__name__)}')
+
+      # gather the node's children names and their contents
+      child_node_names = []
+      child_node_contents = []
+      for child in node.children:
+        child_content = child.getText()
+        child_content = (child_content[:35] + '..') if len(child_content) > 35 else child_content
+
+        child_name = format_node_name(child.__class__.__name__)
+
+        info_len = max(len(child_content), len(child_name))
+        child_name = child_name.ljust(info_len, ' ')
+        child_content = child_content.ljust(info_len, ' ')
+
+        child_node_names.append(child_name)
+        child_node_contents.append(child_content)
+      
+      # print the node's children
+      print(f'    {" | ".join(child_node_names)}')
+      print(f'    {" | ".join(child_node_contents)}')
 
 
-# Selector which returns specified arg value node of specified component
 class ComponentArgSelector(Selector):
-  def __init__(self, component_name, arg_name):
-    self._component_name = component_name
-    self._arg_name = arg_name
+  """ComponentArgSelector is a Selector which returns the argument assignment
+  node on the specified component
+  """
+
+  def __init__(self, component_identifier, argument_name):
+    """__init__ initializes the selector
+
+    :param component_identifier: string, identifier (ie name) of the component to select
+    :param argument_name: string, name of the argument (ie parameter) to select
+    """
+    self._component_identifier = component_identifier
+    self._argument_name = argument_name
   
   def _select(self, root, parser):
     return selectPath(
       root,
       parser,
       [{
-        # target component
+        # get component
         'rule': 'declaration',
         'child': 'IDENT',
-        'child_value': self._component_name
+        'child_value': self._component_identifier
       },
       {
-        # target argument
+        # get argument
         'rule': 'element_modification',
         'child': 'name',
-        'child_value': self._arg_name
+        'child_value': self._argument_name
       },
       {
-        # argument value
+        # get argument value
         'rule': 'expression',
         'child': None,
         'child_value': None
+      }]
+    )
+
+class ConnectSelector(Selector):
+  """ConnectSelector is a Selector which returns connect clauses connecting
+  component_a and component_b
+  """
+  def __init__(self, component_a, component_b):
+    self._a = component_a
+    self._b = component_b
+  
+  def _select(self, root, parser):
+    return selectPath(
+      root,
+      parser,
+      [{
+        'rule': 'connect_clause',
+        'child': 'component_reference',
+        'child_value': self._a
       }]
     )

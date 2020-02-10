@@ -1,4 +1,5 @@
-from modelicaTransformer.Transformer import Transformer, Transformation
+from modelicaTransformer.Transformer import Transformer
+from modelicaTransformer.Transformation import Transformation
 from modelicaTransformer.Edit import Edit
 from modelicaTransformer.Selector import Selector
 
