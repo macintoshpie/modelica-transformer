@@ -3,8 +3,11 @@ Package for parsing and transforming Modelica documents.
 
 ## Setup
 ```bash
-# install requirements
-pip install -r requirements.txt
+# install
+pip install ./
+
+# install for dev
+pip install --editable ./
 ```
 
 ## Usage
