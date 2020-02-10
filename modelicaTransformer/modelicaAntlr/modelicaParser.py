@@ -1,4 +1,4 @@
-# Generated from modelica.g4 by ANTLR 4.8
+# Generated from /var/antlrResult/modelica.g4 by ANTLR 4.8
 # encoding: utf-8
 from antlr4 import *
 from io import StringIO
