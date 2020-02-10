@@ -21,15 +21,20 @@ With docker installed, run these commands from this the repo's root directory
 ```bash
 # build Antlr container
 docker build -t antlr4:latest -f antlr/Dockerfile .
+
 # run parser generator for python
-docker run -v "$(pwd)/modelicaTransformer/modelicaAntlr":/var/antlrResult antlr4:latest -Dlanguage=Python3 /var/antlrResult/modelica.g4
-# commit results
+docker run -v "$(pwd)/modelicaTransformer/modelicaAntlr":/var/antlrResult \
+  antlr4:latest \
+  -Dlanguage=Python3 /var/antlrResult/modelica.g4
+
+# commit results along with grammar file
 ```
 
 If not using Docker, Install antlr4 following [these instructions](https://github.com/antlr/antlr4/blob/master/doc/getting-started.md#installation)
 ```bash
 # in modelicaTransformer/modelicaAntlr
 antlr4 -Dlanguage=Python3 modelica.g4
-# commit results
+
+# commit results along with grammar file
 ```
 
